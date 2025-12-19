@@ -61,11 +61,11 @@ const PlaybackCanvas = forwardRef<PlaybackCanvasHandle, PlaybackCanvasProps>(({
 
   useImperativeHandle(ref, () => ({
     zoomIn: () => { 
-      followDistanceRef.current = Math.max(8, followDistanceRef.current * 0.85); 
+      followDistanceRef.current = Math.max(5, followDistanceRef.current * 0.85); 
       setDummy(d => d + 1); 
     },
     zoomOut: () => { 
-      followDistanceRef.current = Math.min(600, followDistanceRef.current * 1.15);
+      followDistanceRef.current = Math.min(1500, followDistanceRef.current * 1.15);
       setDummy(d => d + 1); 
     },
     resetCamera: () => { 
@@ -84,7 +84,7 @@ const PlaybackCanvas = forwardRef<PlaybackCanvasHandle, PlaybackCanvasProps>(({
     if (!containerRef.current) return;
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x020408);
-    scene.fog = new THREE.Fog(0x020408, 100, 1000);
+    scene.fog = new THREE.Fog(0x020408, 100, 1500);
     sceneRef.current = scene;
 
     const camera = new THREE.PerspectiveCamera(45, containerRef.current.clientWidth / containerRef.current.clientHeight, 0.1, 10000);
@@ -101,37 +101,20 @@ const PlaybackCanvas = forwardRef<PlaybackCanvasHandle, PlaybackCanvasProps>(({
     controls.enableDamping = true;
     controls.dampingFactor = 0.1;
     controls.maxPolarAngle = Math.PI / 2.05;
-    controls.minDistance = 5;
-    controls.maxDistance = 1500;
+    controls.minDistance = 2;
+    controls.maxDistance = 2000;
+    controls.enableZoom = false; // Disable standard zoom to use custom Ctrl+Wheel
     controlsRef.current = controls;
 
-    scene.add(new THREE.AmbientLight(0xffffff, 0.4));
-    const dLight = new THREE.DirectionalLight(0xffffff, 1.4);
-    dLight.position.set(50, 150, 50);
-    scene.add(dLight);
-    
-    // Create a ground group for infinite scrolling
-    const groundGroup = new THREE.Group();
-    scene.add(groundGroup);
-    groundGroupRef.current = groundGroup;
-
-    // Major Grid: 10m intervals
-    const majorGrid = new THREE.GridHelper(2000, 200, 0x1e293b, 0x0f172a);
-    majorGrid.position.y = -0.01;
-    groundGroup.add(majorGrid);
-
-    // Minor Grid: 2m intervals for better speed sense
-    const minorGrid = new THREE.GridHelper(2000, 1000, 0x0f172a, 0x080c14);
-    minorGrid.position.y = -0.02;
-    groundGroup.add(minorGrid);
-
-    const hostGroup = new THREE.Group();
-    scene.add(hostGroup);
-    hostGroupRef.current = hostGroup;
-
-    const objectsGroup = new THREE.Group();
-    scene.add(objectsGroup);
-    objectsGroupRef.current = objectsGroup;
+    const onWheel = (e: WheelEvent) => {
+      if (e.ctrlKey) {
+        e.preventDefault();
+        const zoomSpeed = 0.0015;
+        const delta = e.deltaY;
+        followDistanceRef.current = Math.max(5, Math.min(1500, followDistanceRef.current * (1 + delta * zoomSpeed)));
+        setDummy(d => d + 1);
+      }
+    };
 
     const resizeObserver = new ResizeObserver(() => {
       if (containerRef.current && cameraRef.current && rendererRef.current) {
@@ -180,16 +163,39 @@ const PlaybackCanvas = forwardRef<PlaybackCanvasHandle, PlaybackCanvasProps>(({
 
     containerRef.current.addEventListener('mousemove', onPointerMove);
     containerRef.current.addEventListener('click', onClick);
+    containerRef.current.addEventListener('wheel', onWheel, { passive: false });
     
+    scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+    const dLight = new THREE.DirectionalLight(0xffffff, 1.4);
+    dLight.position.set(50, 150, 50);
+    scene.add(dLight);
+    
+    const groundGroup = new THREE.Group();
+    scene.add(groundGroup);
+    groundGroupRef.current = groundGroup;
+
+    const majorGrid = new THREE.GridHelper(2000, 200, 0x1e293b, 0x0f172a);
+    majorGrid.position.y = -0.01;
+    groundGroup.add(majorGrid);
+
+    const minorGrid = new THREE.GridHelper(2000, 1000, 0x0f172a, 0x080c14);
+    minorGrid.position.y = -0.02;
+    groundGroup.add(minorGrid);
+
+    const hostGroup = new THREE.Group();
+    scene.add(hostGroup);
+    hostGroupRef.current = hostGroup;
+
+    const objectsGroup = new THREE.Group();
+    scene.add(objectsGroup);
+    objectsGroupRef.current = objectsGroup;
+
     let isDisposed = false;
     const animate = () => { 
       if (isDisposed) return;
       requestAnimationFrame(animate); 
       if (controlsRef.current) {
         controlsRef.current.update();
-        if (!isFollowing) {
-           followDistanceRef.current = cameraRef.current!.position.distanceTo(controlsRef.current.target);
-        }
       }
       if (rendererRef.current && sceneRef.current && cameraRef.current) {
         rendererRef.current.render(sceneRef.current, cameraRef.current); 
@@ -202,6 +208,7 @@ const PlaybackCanvas = forwardRef<PlaybackCanvasHandle, PlaybackCanvasProps>(({
       resizeObserver.disconnect();
       containerRef.current?.removeEventListener('mousemove', onPointerMove);
       containerRef.current?.removeEventListener('click', onClick);
+      containerRef.current?.removeEventListener('wheel', onWheel);
       renderer.dispose();
       objectCacheRef.current.clear();
     };
@@ -211,22 +218,13 @@ const PlaybackCanvas = forwardRef<PlaybackCanvasHandle, PlaybackCanvasProps>(({
     if (!sceneRef.current || !objectsGroupRef.current || !hostGroupRef.current || !groundGroupRef.current || !cameraRef.current || !controlsRef.current) return;
     const { navi, objs } = frame;
     
-    /**
-     * INFINITE SCROLLING GRID LOGIC
-     * To make objects look like they are moving on the ground, the grid itself must move 
-     * in the opposite direction of the host vehicle's world coordinates.
-     */
-    const gridStep = 10; // Major grid step in meters
-    // Modulo logic to keep the grid looking infinite while the host stays at (0,0) in relative terms
+    const gridStep = 10;
     groundGroupRef.current.position.x = - (navi.east % gridStep);
     groundGroupRef.current.position.z = (navi.north % gridStep);
 
-    // Host Vehicle is always at the center of the local scene (0,0,0)
-    // Rotation mapping: Corrected to match AD coordination (0 = East, CCW)
     hostGroupRef.current.rotation.y = navi.theta - Math.PI / 2;
     
     if (hostGroupRef.current.children.length === 0) {
-      // 1. MAIN BODY
       const carBody = new THREE.Mesh(
         new THREE.BoxGeometry(2.1, 0.8, 4.8), 
         new THREE.MeshPhongMaterial({ color: 0xe2e8f0, emissive: 0x3b82f6, emissiveIntensity: 0.15 })
@@ -234,7 +232,6 @@ const PlaybackCanvas = forwardRef<PlaybackCanvasHandle, PlaybackCanvasProps>(({
       carBody.position.y = 0.4;
       hostGroupRef.current.add(carBody);
       
-      // 2. ROOF
       const roof = new THREE.Mesh(
         new THREE.BoxGeometry(1.8, 0.6, 2.2),
         new THREE.MeshPhongMaterial({ color: 0x0f172a, transparent: true, opacity: 0.9 })
@@ -242,7 +239,6 @@ const PlaybackCanvas = forwardRef<PlaybackCanvasHandle, PlaybackCanvasProps>(({
       roof.position.set(0, 1.1, -0.3);
       hostGroupRef.current.add(roof);
 
-      // 3. INDICATORS
       const lightGeo = new THREE.BoxGeometry(0.5, 0.1, 0.05);
       const leftLight = new THREE.Mesh(lightGeo, new THREE.MeshBasicMaterial({ color: 0xffffff }));
       leftLight.position.set(0.7, 0.4, 2.4);
@@ -250,7 +246,6 @@ const PlaybackCanvas = forwardRef<PlaybackCanvasHandle, PlaybackCanvasProps>(({
       rightLight.position.set(-0.7, 0.4, 2.4);
       hostGroupRef.current.add(leftLight, rightLight);
 
-      // 4. HEADING ARROW
       const arrowShape = new THREE.Shape();
       arrowShape.moveTo(0, 5); arrowShape.lineTo(2, 0); arrowShape.lineTo(0.7, 0);
       arrowShape.lineTo(0.7, -4); arrowShape.lineTo(-0.7, -4); arrowShape.lineTo(-0.7, 0);
@@ -265,12 +260,11 @@ const PlaybackCanvas = forwardRef<PlaybackCanvasHandle, PlaybackCanvasProps>(({
       hostGroupRef.current.add(arrowMesh);
     }
 
-    // Camera following the host vehicle
     if (isFollowing) {
       const dist = followDistanceRef.current;
       const camX = -Math.cos(navi.theta) * dist;
       const camZ = Math.sin(navi.theta) * dist;
-      const camY = Math.max(5, dist * 0.4); 
+      const camY = Math.max(2, dist * 0.4); 
       const cameraPos = new THREE.Vector3(camX, camY, camZ);
       
       const lookAheadDist = 20;
@@ -283,7 +277,6 @@ const PlaybackCanvas = forwardRef<PlaybackCanvasHandle, PlaybackCanvasProps>(({
       controlsRef.current.update();
     }
 
-    // Update other objects
     const currentIds = new Set(objs.map(o => o.id));
     for (const [id, cached] of objectCacheRef.current.entries()) {
       if (!currentIds.has(id)) {
@@ -298,8 +291,6 @@ const PlaybackCanvas = forwardRef<PlaybackCanvasHandle, PlaybackCanvasProps>(({
 
     objs.forEach((obj) => {
       const color = KIND_COLORS[obj.kind] || '#9ca3af';
-      // calculateRelativePosition is based on (obj.pos - host.pos)
-      // This is exactly what we need for a ego-centric view where grid scrolls.
       const pos = calculateRelativePosition(obj, navi);
       const isSelected = selectedId === obj.id;
       const isHovered = hoveredId === obj.id;
@@ -320,7 +311,6 @@ const PlaybackCanvas = forwardRef<PlaybackCanvasHandle, PlaybackCanvasProps>(({
         labelSprite.scale.set(3.5, 1.1, 1); labelSprite.position.y = 3.5;
         group.add(labelSprite);
 
-        // Ground shadow for better motion reference
         const shadow = new THREE.Mesh(
           new THREE.CircleGeometry(1.5, 16), 
           new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.4, side: THREE.DoubleSide })
@@ -338,7 +328,7 @@ const PlaybackCanvas = forwardRef<PlaybackCanvasHandle, PlaybackCanvasProps>(({
       cached.mesh.rotation.y = hRad - Math.PI / 2;
       applyObjectScaling(cached.mesh, obj);
 
-      const isMoving = obj.vel > 0.5;
+      const isMoving = obj.vel > 0;
       if (isMoving) {
         const vRad = obj.vel_theta / 1000;
         const vDir = new THREE.Vector3(Math.cos(vRad), 0, -Math.sin(vRad));

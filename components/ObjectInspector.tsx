@@ -42,15 +42,15 @@ const ObjectInspector: React.FC<ObjectInspectorProps> = ({
     })();
 
     return {
-      movingObjects: sorted.filter(obj => obj.vel > 0.5),
-      stationaryObjects: sorted.filter(obj => obj.vel <= 0.5)
+      movingObjects: sorted.filter(obj => obj.vel > 0),
+      stationaryObjects: sorted.filter(obj => obj.vel <= 0)
     };
   }, [objects, sortMode, navi]);
 
   const renderCard = (obj: MOTObject) => {
     const isSelected = selectedId === obj.id;
     const dist = getDist(obj);
-    const displayVel = obj.vel < 0.5 ? 0 : Math.round(obj.vel);
+    const displayVel = obj.vel <= 0 ? 0 : Math.round(obj.vel);
     
     return (
       <div 
