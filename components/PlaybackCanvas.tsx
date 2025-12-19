@@ -55,25 +55,26 @@ const PlaybackCanvas = forwardRef<PlaybackCanvasHandle, PlaybackCanvasProps>(({
   const mouseRef = useRef(new THREE.Vector2());
   const objectCacheRef = useRef<Map<number, CachedObject>>(new Map());
   
-  const DEFAULT_ZOOM = 42;
+  // Adjusted default distance for better initial framing
+  const DEFAULT_ZOOM = 35;
   const followDistanceRef = useRef(DEFAULT_ZOOM);
   const [dummy, setDummy] = useState(0);
 
   useImperativeHandle(ref, () => ({
     zoomIn: () => { 
-      followDistanceRef.current = Math.max(5, followDistanceRef.current * 0.8); 
+      followDistanceRef.current = Math.max(8, followDistanceRef.current * 0.85); 
       setDummy(d => d + 1); 
     },
     zoomOut: () => { 
-      followDistanceRef.current = Math.min(800, followDistanceRef.current * 1.25);
+      followDistanceRef.current = Math.min(600, followDistanceRef.current * 1.15);
       setDummy(d => d + 1); 
     },
     resetCamera: () => { 
       followDistanceRef.current = DEFAULT_ZOOM; 
       if (controlsRef.current && cameraRef.current) {
         controlsRef.current.reset();
-        cameraRef.current.position.set(0, 16, 42);
-        controlsRef.current.target.set(0, 0, 0);
+        cameraRef.current.position.set(0, 12, 30);
+        controlsRef.current.target.set(0, 0, -10); // Look ahead by default
         controlsRef.current.update();
       }
       setDummy(d => d + 1); 
@@ -84,11 +85,13 @@ const PlaybackCanvas = forwardRef<PlaybackCanvasHandle, PlaybackCanvasProps>(({
     if (!containerRef.current) return;
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x020408);
-    scene.fog = new THREE.Fog(0x020408, 100, 1500);
+    // Add denser fog for better depth perception
+    scene.fog = new THREE.Fog(0x020408, 150, 800);
     sceneRef.current = scene;
 
-    const camera = new THREE.PerspectiveCamera(38, containerRef.current.clientWidth / containerRef.current.clientHeight, 0.1, 10000);
-    camera.position.set(0, 16, 42);
+    // Standard field of view for 3D simulations
+    const camera = new THREE.PerspectiveCamera(45, containerRef.current.clientWidth / containerRef.current.clientHeight, 0.1, 10000);
+    camera.position.set(0, 12, 30);
     cameraRef.current = camera;
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
@@ -99,18 +102,19 @@ const PlaybackCanvas = forwardRef<PlaybackCanvasHandle, PlaybackCanvasProps>(({
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
-    controls.dampingFactor = 0.15;
-    controls.maxPolarAngle = Math.PI / 2.1;
-    controls.minDistance = 2;
-    controls.maxDistance = 1200;
+    controls.dampingFactor = 0.1;
+    controls.maxPolarAngle = Math.PI / 2.05;
+    controls.minDistance = 5;
+    controls.maxDistance = 1000;
     controlsRef.current = controls;
 
-    scene.add(new THREE.AmbientLight(0xffffff, 0.5));
-    const dLight = new THREE.DirectionalLight(0xffffff, 1.2);
-    dLight.position.set(100, 300, 100);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+    const dLight = new THREE.DirectionalLight(0xffffff, 1.4);
+    dLight.position.set(50, 150, 50);
     scene.add(dLight);
     
-    const grid = new THREE.GridHelper(10000, 1000, 0x1e293b, 0x0f172a);
+    // Adjusted grid for better spatial awareness
+    const grid = new THREE.GridHelper(5000, 500, 0x1e293b, 0x0f172a);
     scene.add(grid);
     gridRef.current = grid;
 
@@ -122,16 +126,13 @@ const PlaybackCanvas = forwardRef<PlaybackCanvasHandle, PlaybackCanvasProps>(({
     scene.add(objectsGroup);
     objectsGroupRef.current = objectsGroup;
 
-    const resizeObserver = new ResizeObserver(entries => {
-      for (let entry of entries) {
-        if (entry.target === containerRef.current) {
-          const { width, height } = entry.contentRect;
-          if (cameraRef.current && rendererRef.current) {
-            cameraRef.current.aspect = width / height;
-            cameraRef.current.updateProjectionMatrix();
-            rendererRef.current.setSize(width, height);
-          }
-        }
+    const resizeObserver = new ResizeObserver(() => {
+      if (containerRef.current && cameraRef.current && rendererRef.current) {
+        const width = containerRef.current.clientWidth;
+        const height = containerRef.current.clientHeight;
+        cameraRef.current.aspect = width / height;
+        cameraRef.current.updateProjectionMatrix();
+        rendererRef.current.setSize(width, height);
       }
     });
     resizeObserver.observe(containerRef.current);
@@ -148,15 +149,14 @@ const PlaybackCanvas = forwardRef<PlaybackCanvasHandle, PlaybackCanvasProps>(({
         while (parent && !parent.userData.id) parent = parent.parent;
         if (parent && parent.userData.id) { 
           onObjectHover?.(parent.userData.id); 
-          if (containerRef.current) containerRef.current.style.cursor = 'pointer'; 
-        } 
-        else { 
+          containerRef.current.style.cursor = 'pointer'; 
+        } else { 
           onObjectHover?.(null); 
-          if (containerRef.current) containerRef.current.style.cursor = 'default'; 
+          containerRef.current.style.cursor = 'default'; 
         }
       } else { 
         onObjectHover?.(null); 
-        if (containerRef.current) containerRef.current.style.cursor = 'default'; 
+        containerRef.current.style.cursor = 'default'; 
       }
     };
 
@@ -180,7 +180,9 @@ const PlaybackCanvas = forwardRef<PlaybackCanvasHandle, PlaybackCanvasProps>(({
       requestAnimationFrame(animate); 
       if (controlsRef.current) {
         controlsRef.current.update();
-        if (!isFollowing) followDistanceRef.current = controlsRef.current.getDistance();
+        if (!isFollowing) {
+           followDistanceRef.current = cameraRef.current!.position.distanceTo(controlsRef.current.target);
+        }
       }
       if (rendererRef.current && sceneRef.current && cameraRef.current) {
         rendererRef.current.render(sceneRef.current, cameraRef.current); 
@@ -202,61 +204,56 @@ const PlaybackCanvas = forwardRef<PlaybackCanvasHandle, PlaybackCanvasProps>(({
     if (!sceneRef.current || !objectsGroupRef.current || !hostGroupRef.current || !cameraRef.current || !controlsRef.current) return;
     const { navi, objs } = frame;
     
+    // Rotate host vehicle based on heading
     hostGroupRef.current.rotation.y = navi.theta - Math.PI / 2;
     
     if (hostGroupRef.current.children.length === 0) {
+      // Create a more distinct host vehicle visual
       const carBody = new THREE.Mesh(
-        new THREE.BoxGeometry(2.1, 0.7, 4.8), 
-        new THREE.MeshPhongMaterial({ color: 0xffffff, emissive: 0x444444, emissiveIntensity: 0.1 })
+        new THREE.BoxGeometry(2.1, 0.8, 4.8), 
+        new THREE.MeshPhongMaterial({ color: 0xffffff, emissive: 0x444444, emissiveIntensity: 0.05 })
       );
-      carBody.position.y = 0.35;
+      carBody.position.y = 0.4;
       hostGroupRef.current.add(carBody);
       
       const roof = new THREE.Mesh(
-        new THREE.BoxGeometry(1.8, 0.5, 2.0),
-        new THREE.MeshPhongMaterial({ color: 0x1e293b, transparent: true, opacity: 0.8 })
+        new THREE.BoxGeometry(1.8, 0.6, 2.0),
+        new THREE.MeshPhongMaterial({ color: 0x1e293b, transparent: true, opacity: 0.9 })
       );
-      roof.position.set(0, 0.95, -0.2);
+      roof.position.set(0, 1.1, -0.2);
       hostGroupRef.current.add(roof);
-    }
-
-    let naviArrow = hostGroupRef.current.getObjectByName('navi_arrow') as THREE.ArrowHelper;
-    const isNaviMoving = navi.vel > 0.1;
-
-    if (isNaviMoving) {
-      if (!naviArrow) {
-        naviArrow = new THREE.ArrowHelper(
-          new THREE.Vector3(0, 0, -1), 
-          new THREE.Vector3(0, 1.3, 0), 
-          6.0, 
-          0x10b981, 
-          1.5, 
-          0.8
-        );
-        naviArrow.name = 'navi_arrow';
-        hostGroupRef.current.add(naviArrow);
-      }
-    } else if (naviArrow) {
-      hostGroupRef.current.remove(naviArrow);
     }
 
     if (isFollowing) {
       const dist = followDistanceRef.current;
+      // Calculate Chase Position: Camera sits BEHIND the car
       const camX = -Math.cos(navi.theta) * dist;
       const camZ = Math.sin(navi.theta) * dist;
-      const camY = Math.max(4, dist * 0.4);
-      const targetPos = new THREE.Vector3(camX, camY, camZ);
+      // Lower elevation for better "vision ahead"
+      const camY = Math.max(3, dist * 0.32); 
+      const cameraPos = new THREE.Vector3(camX, camY, camZ);
       
-      cameraRef.current.position.lerp(targetPos, 0.15);
-      controlsRef.current.target.lerp(new THREE.Vector3(0, 0.5, 0), 0.15);
+      // Calculate Look-ahead Target: Target sits AHEAD of the car
+      const lookAheadDist = 15; // Focus on point 15m ahead
+      const targetX = Math.cos(navi.theta) * lookAheadDist;
+      const targetZ = -Math.sin(navi.theta) * lookAheadDist;
+      const targetPos = new THREE.Vector3(targetX, 0.8, targetZ);
+      
+      // Smooth transitions
+      cameraRef.current.position.lerp(cameraPos, 0.12);
+      controlsRef.current.target.lerp(targetPos, 0.12);
       controlsRef.current.update();
     }
 
+    // Object Rendering Logic
     const currentIds = new Set(objs.map(o => o.id));
     for (const [id, cached] of objectCacheRef.current.entries()) {
       if (!currentIds.has(id)) {
         if (objectsGroupRef.current) objectsGroupRef.current.remove(cached.group);
-        cached.group.traverse((o: any) => { if (o.geometry) o.geometry.dispose(); if (o.material) Array.isArray(o.material) ? o.material.forEach((m: any) => m.dispose()) : o.material.dispose(); });
+        cached.group.traverse((o: any) => { 
+          if (o.geometry) o.geometry.dispose(); 
+          if (o.material) Array.isArray(o.material) ? o.material.forEach((m: any) => m.dispose()) : o.material.dispose(); 
+        });
         objectCacheRef.current.delete(id);
       }
     }
@@ -283,7 +280,7 @@ const PlaybackCanvas = forwardRef<PlaybackCanvasHandle, PlaybackCanvasProps>(({
         labelSprite.scale.set(3.5, 1.1, 1); labelSprite.position.y = 3.5;
         group.add(labelSprite);
 
-        const shadow = new THREE.Mesh(new THREE.CircleGeometry(1.2, 16), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.08, side: THREE.DoubleSide }));
+        const shadow = new THREE.Mesh(new THREE.CircleGeometry(1.2, 16), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.1, side: THREE.DoubleSide }));
         shadow.rotation.x = Math.PI / 2; shadow.position.y = 0.01;
         group.add(shadow);
 
@@ -299,7 +296,6 @@ const PlaybackCanvas = forwardRef<PlaybackCanvasHandle, PlaybackCanvasProps>(({
       applyObjectScaling(cached.mesh, obj);
 
       const isMoving = obj.vel > 0.5;
-      
       if (isMoving) {
         const vRad = obj.vel_theta / 1000;
         const vDir = new THREE.Vector3(Math.cos(vRad), 0, -Math.sin(vRad));
@@ -320,7 +316,7 @@ const PlaybackCanvas = forwardRef<PlaybackCanvasHandle, PlaybackCanvasProps>(({
 
       if (isSelected || isHovered) {
         if (!cached.ring) {
-          cached.ring = new THREE.Mesh(new THREE.RingGeometry(2.2, 2.5, 32).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: isSelected ? 0x60a5fa : 0xffffff, transparent: true, opacity: 0.6, side: THREE.DoubleSide }));
+          cached.ring = new THREE.Mesh(new THREE.RingGeometry(2.3, 2.6, 32).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: isSelected ? 0x60a5fa : 0xffffff, transparent: true, opacity: 0.7, side: THREE.DoubleSide }));
           cached.ring.position.y = 0.05; cached.group.add(cached.ring);
         } else (cached.ring.material as THREE.MeshBasicMaterial).color.set(isSelected ? 0x60a5fa : 0xffffff);
       } else if (cached.ring) { cached.group.remove(cached.ring); cached.ring = undefined; }
@@ -333,7 +329,7 @@ const PlaybackCanvas = forwardRef<PlaybackCanvasHandle, PlaybackCanvasProps>(({
     });
   }, [frame, isFollowing, selectedId, hoveredId, dummy]);
 
-  return <div ref={containerRef} className="w-full h-full relative" />;
+  return <div ref={containerRef} className="absolute inset-0 w-full h-full" />;
 });
 
 export default PlaybackCanvas;

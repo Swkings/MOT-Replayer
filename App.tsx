@@ -43,7 +43,6 @@ const App: React.FC = () => {
   useEffect(() => { framesRef.current = frames; }, [frames]);
   useEffect(() => { currentIndexRef.current = currentIndex; }, [currentIndex]);
 
-  // 1. 监听页面可见性变化，离开标签页自动暂停
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.hidden && isPlaying) {
@@ -211,11 +210,9 @@ const App: React.FC = () => {
     setIsPlaying(!isPlaying);
   };
 
-  // 退出播放界面：不仅清除数据，还要确保停止状态并断开所有连接
   const handleHome = () => {
-    console.debug('[App] Exiting playback view, stopping all processes');
     streamService.disconnect();
-    setIsPlaying(false); // 关键：自动暂停
+    setIsPlaying(false);
     setIsLive(false);
     setFrames([]);
     setStreamError(null);
@@ -307,12 +304,22 @@ const App: React.FC = () => {
           onSelectObject={setSelectedId} onHoverObject={setHoveredId}
         />
       )}
-      <div className="flex-1 min-w-0 flex flex-col relative h-full">
-        <div className="flex-1 relative min-h-0">
-          <PlaybackCanvas ref={canvasRef} frame={currentFrame} isFollowing={isFollowing} selectedId={selectedId} hoveredId={hoveredId} onObjectClick={setSelectedId} onObjectHover={setHoveredId} />
+      <div className="flex-1 min-w-0 flex flex-col relative h-full bg-slate-950">
+        <div className="flex-1 relative overflow-hidden">
+          <PlaybackCanvas 
+            ref={canvasRef} 
+            frame={currentFrame} 
+            isFollowing={isFollowing} 
+            selectedId={selectedId} 
+            hoveredId={hoveredId} 
+            onObjectClick={setSelectedId} 
+            onObjectHover={setHoveredId} 
+          />
           
-          <div className="absolute top-6 left-6 z-20 flex flex-col gap-4">
-            <Legend />
+          <div className="absolute top-6 left-6 z-20 flex flex-col gap-4 pointer-events-none">
+            <div className="pointer-events-auto">
+              <Legend />
+            </div>
             {jumpNotice && <div className="bg-blue-600/90 text-white text-[10px] font-black uppercase px-4 py-2 rounded-xl flex items-center gap-2 animate-in fade-in slide-in-from-left duration-300 backdrop-blur shadow-lg shadow-blue-600/20"><FastForward size={14} />{jumpNotice}</div>}
             
             {streamError && (
