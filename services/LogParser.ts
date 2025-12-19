@@ -3,24 +3,25 @@ import { MOTFrame, MOTObject, NaviData, ObjectKind } from '../types';
 
 export class LogParser {
   static parse(content: string): MOTFrame[] {
-    const frames: MOTFrame[] = [];
-    const trimmedContent = content.trim();
+    let frames: MOTFrame[] = [];
 
-    // Check if the entire content is a JSON array (common for exported logs)
-    if (trimmedContent.startsWith('[') && trimmedContent.endsWith(']')) {
-      try {
-        const parsed = JSON.parse(this.sanitizeJson(trimmedContent));
+    // 1. Try to parse the entire content as a single JSON object or array (common for exported files)
+    try {
+      const trimmedContent = content.trim();
+      if (trimmedContent.startsWith('[') || trimmedContent.startsWith('{')) {
+        const parsed = JSON.parse(trimmedContent);
         const items = Array.isArray(parsed) ? parsed : [parsed];
         for (const item of items) {
           const frame = this.parseSingle(item);
           if (frame) frames.push(frame);
         }
-        return this.sortAndDedupe(frames);
-      } catch (e) {
-        // If parsing fails as a whole, fallback to line-by-line
+        if (frames.length > 0) return this.finalizeFrames(frames);
       }
+    } catch (e) {
+      // Not a valid full-file JSON, fall back to line-by-line parsing
     }
 
+    // 2. Line-by-line parsing for traditional log files
     const lines = content.split(/\r?\n/);
     for (const line of lines) {
       const trimmedLine = line.trim();
@@ -39,7 +40,13 @@ export class LogParser {
           jsonStr = trimmedLine.substring(firstBrace).trim();
         }
 
-        const parsed = JSON.parse(this.sanitizeJson(jsonStr));
+        // Robust Python-to-JSON conversion for logs
+        jsonStr = jsonStr.replace(/'/g, '"');
+        jsonStr = jsonStr.replace(/:\s*True/gi, ': true')
+                         .replace(/:\s*False/gi, ': false')
+                         .replace(/:\s*None/gi, ': null');
+
+        const parsed = JSON.parse(jsonStr);
         const items = Array.isArray(parsed) ? parsed : [parsed];
         
         for (const item of items) {
@@ -51,23 +58,16 @@ export class LogParser {
       }
     }
 
-    return this.sortAndDedupe(frames);
+    return this.finalizeFrames(frames);
   }
 
-  private static sanitizeJson(str: string): string {
-    // Convert Python-style logs to valid JSON
-    return str
-      .replace(/'/g, '"')
-      .replace(/:\s*True/gi, ': true')
-      .replace(/:\s*False/gi, ': false')
-      .replace(/:\s*None/gi, ': null');
-  }
-
-  private static sortAndDedupe(frames: MOTFrame[]): MOTFrame[] {
+  private static finalizeFrames(frames: MOTFrame[]): MOTFrame[] {
+    // Filter and sort by timestamp
     const sorted = frames
       .filter(f => f.timestamp > 0)
       .sort((a, b) => a.timestamp - b.timestamp);
     
+    // De-duplicate frames with same timestamp
     return sorted.filter((f, i, arr) => i === 0 || f.timestamp !== arr[i-1].timestamp);
   }
 
@@ -76,29 +76,38 @@ export class LogParser {
 
     let hmiData = null;
 
-    // 1. Check for wrapped formats (MQTT/Logs with channels)
-    if (item.channel === 'mov_objs_hmi') {
+    // Check various channel markers or nested structures
+    // "mot-6" and "mov_objs_hmi" are common channel identifiers
+    const motChannels = ['mov_objs_hmi', 'tracking', 'mot_msg', 'mot_6', 'tracking_msg'];
+    
+    if (motChannels.includes(item.channel)) {
       hmiData = item.params;
-    } 
-    else if (item.channel === 'tracking' && item.params && item.params.mov_objs_hmi) {
+    } else if (item.params?.mov_objs_hmi) {
       hmiData = item.params.mov_objs_hmi;
-    }
-    // 2. Check for direct format (provided by user)
-    else if (item.navi && Array.isArray(item.objs)) {
+    } else if (item.params?.mot_msg) {
+      hmiData = item.params.mot_msg;
+    } else if (item.params?.objs || item.params?.mot_objs) {
+      hmiData = item.params;
+    } else if (item.objs || item.mot_objs) {
       hmiData = item;
     }
 
-    if (hmiData && hmiData.navi && Array.isArray(hmiData.objs)) {
-      // Prioritize explicit ts, then navi.ts, then fallback to item timestamp
-      const timestamp = hmiData.timestamp || item.timestamp || (Array.isArray(hmiData.navi) ? hmiData.navi[8] : hmiData.navi.ts) || 0;
-      
-      return {
-        timestamp: timestamp,
-        vin: hmiData.vin || item.vin || "Unknown",
-        navi: this.mapNavi(hmiData.navi),
-        objs: hmiData.objs.map((o: any) => this.mapObject(o)),
-        raw: JSON.stringify(item, null, 2)
-      };
+    if (hmiData) {
+      const navi = hmiData.navi || hmiData.navi_msg;
+      const objs = hmiData.objs || hmiData.mot_objs || hmiData.objects;
+
+      if (navi && Array.isArray(objs)) {
+        const timestamp = item.timestamp || hmiData.timestamp || 
+                          (Array.isArray(navi) ? navi[8] : (navi.ts || navi.timestamp)) || 0;
+        
+        return {
+          timestamp: timestamp,
+          vin: item.vin || "Unknown",
+          navi: this.mapNavi(navi),
+          objs: objs.map((o: any) => this.mapObject(o)),
+          raw: JSON.stringify(item, null, 2)
+        };
+      }
     }
     return null;
   }
@@ -111,7 +120,18 @@ export class LogParser {
         vel: navi[6], yaw_angular_speed: navi[7], ts: navi[8],
       };
     }
-    return navi as NaviData;
+    // Handle camelCase or snake_case for navi data fields
+    return {
+      east: navi.east,
+      north: navi.north,
+      height: navi.height,
+      theta: navi.theta,
+      alpha: navi.alpha,
+      beta: navi.beta,
+      vel: navi.vel,
+      yaw_angular_speed: navi.yaw_angular_speed || navi.yaw_speed || 0,
+      ts: navi.ts || navi.timestamp || 0
+    };
   }
 
   private static mapObject(obj: any): MOTObject {
@@ -122,6 +142,17 @@ export class LogParser {
         vertex_points: obj[6] || [], lower_z: obj[7], veh_light_kind: obj[8],
       };
     }
-    return obj as MOTObject;
+    // Deep clone vertex points to ensure no reference issues
+    return {
+      id: obj.id,
+      theta: obj.theta,
+      vel: obj.vel,
+      vel_theta: obj.vel_theta || obj.velTheta || 0,
+      height: obj.height,
+      kind: obj.kind as ObjectKind,
+      vertex_points: Array.isArray(obj.vertex_points) ? [...obj.vertex_points] : [],
+      lower_z: obj.lower_z || obj.lowerZ || 0,
+      veh_light_kind: obj.veh_light_kind || obj.vehLightKind || -1,
+    };
   }
 }

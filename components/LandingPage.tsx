@@ -107,7 +107,10 @@ const LandingPage: React.FC<LandingPageProps> = ({
             <h1 className="text-4xl font-black italic tracking-tighter bg-gradient-to-br from-white to-slate-500 bg-clip-text text-transparent">
               MOT REPLAYER PRO
             </h1>
-            <p className="text-slate-500 text-xs font-bold uppercase tracking-widest mt-2">Spatial Intelligence Reconstruction</p>
+            <div className="flex items-center justify-center gap-3 mt-2">
+              <p className="text-slate-500 text-xs font-bold uppercase tracking-widest">Spatial Intelligence Reconstruction</p>
+              <span className="bg-blue-500/20 text-blue-400 text-[8px] font-black uppercase px-1.5 py-0.5 rounded border border-blue-500/20">MOT-6 Supported</span>
+            </div>
           </div>
         </div>
 
@@ -123,9 +126,9 @@ const LandingPage: React.FC<LandingPageProps> = ({
                 <Database className="w-8 h-8 text-slate-600 group-hover:text-blue-400 mb-3 transition-transform group-hover:-translate-y-1" />
                 <div className="text-center px-6">
                   <p className="text-base font-bold text-slate-200">Upload Static Log</p>
-                  <p className="text-[10px] text-slate-500 mt-1 font-black uppercase tracking-widest">Select .log / .txt</p>
+                  <p className="text-[10px] text-slate-500 mt-1 font-black uppercase tracking-widest">Select .log / .json / .txt</p>
                 </div>
-                <input type="file" className="hidden" accept=".log,.txt" onChange={onFileUpload} />
+                <input type="file" className="hidden" accept=".log,.txt,.json" onChange={onFileUpload} />
               </label>
 
               <button 
