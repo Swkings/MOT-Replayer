@@ -26,7 +26,7 @@ const PlaybackStats: React.FC<PlaybackStatsProps> = ({ currentIndex, totalFrames
   const lastDataTotalRef = useRef(totalFrames);
   const lastDataTimeRef = useRef(performance.now());
 
-  // Update tracking refs on every prop change
+  // Immediate sync of refs on every prop change
   useEffect(() => {
     latestIndexRef.current = currentIndex;
     latestTotalRef.current = totalFrames;
@@ -54,7 +54,8 @@ const PlaybackStats: React.FC<PlaybackStatsProps> = ({ currentIndex, totalFrames
 
   // Stable Data FPS Calculation Logic (Throughput)
   useEffect(() => {
-    // Reset history when mode changes or effect starts
+    // SYNC HISTORY: When the mode changes or component starts, 
+    // immediately align lastData refs with current state to avoid zero deltas.
     lastDataIndexRef.current = latestIndexRef.current;
     lastDataTotalRef.current = latestTotalRef.current;
     lastDataTimeRef.current = performance.now();
@@ -65,10 +66,10 @@ const PlaybackStats: React.FC<PlaybackStatsProps> = ({ currentIndex, totalFrames
       
       let dataDelta = 0;
       if (isLive) {
-        // In live mode, we track how many new frames were added to the buffer
+        // In live mode, track ingestion rate
         dataDelta = latestTotalRef.current - lastDataTotalRef.current;
       } else {
-        // In replay mode, we track how many frames the cursor moved (absolute distance)
+        // In replay mode, track movement speed across frames
         dataDelta = Math.abs(latestIndexRef.current - lastDataIndexRef.current);
       }
 
@@ -83,7 +84,7 @@ const PlaybackStats: React.FC<PlaybackStatsProps> = ({ currentIndex, totalFrames
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [isLive]); // Only restart if the live/replay mode changes
+  }, [isLive]); // Restart only on source type change
 
   const progressPercent = totalFrames > 0 ? Math.round(((currentIndex + 1) / totalFrames) * 100) : 0;
   
@@ -95,7 +96,6 @@ const PlaybackStats: React.FC<PlaybackStatsProps> = ({ currentIndex, totalFrames
 
   return (
     <div className="bg-slate-900/70 backdrop-blur-2xl border border-white/10 p-5 rounded-[2rem] shadow-[0_20px_50px_rgba(0,0,0,0.6)] flex flex-col gap-5 min-w-[240px] pointer-events-auto border-t-white/20">
-      {/* Dual FPS Header */}
       <div className="grid grid-cols-2 gap-4 border-b border-white/5 pb-4">
         <div className="flex flex-col gap-1">
           <div className="flex items-center gap-1.5 opacity-60">
@@ -124,7 +124,6 @@ const PlaybackStats: React.FC<PlaybackStatsProps> = ({ currentIndex, totalFrames
         </div>
       </div>
 
-      {/* Progress Tracking */}
       <div className="space-y-4">
         <div className="flex flex-col gap-1.5">
           <div className="flex items-center justify-between">
@@ -147,7 +146,6 @@ const PlaybackStats: React.FC<PlaybackStatsProps> = ({ currentIndex, totalFrames
           )}
         </div>
 
-        {/* Dynamic Status Tag */}
         <div className="flex items-center justify-between pt-1">
            <div className="flex items-center gap-2">
               <div className={`w-2 h-2 rounded-full ${isLive ? 'bg-red-500 animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.6)]' : 'bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.6)]'}`} />

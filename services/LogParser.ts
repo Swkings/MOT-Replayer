@@ -4,8 +4,24 @@ import { MOTFrame, MOTObject, NaviData, ObjectKind } from '../types';
 export class LogParser {
   static parse(content: string): MOTFrame[] {
     const frames: MOTFrame[] = [];
-    const lines = content.split(/\r?\n/);
+    const trimmedContent = content.trim();
 
+    // Check if the entire content is a JSON array (common for exported logs)
+    if (trimmedContent.startsWith('[') && trimmedContent.endsWith(']')) {
+      try {
+        const parsed = JSON.parse(this.sanitizeJson(trimmedContent));
+        const items = Array.isArray(parsed) ? parsed : [parsed];
+        for (const item of items) {
+          const frame = this.parseSingle(item);
+          if (frame) frames.push(frame);
+        }
+        return this.sortAndDedupe(frames);
+      } catch (e) {
+        // If parsing fails as a whole, fallback to line-by-line
+      }
+    }
+
+    const lines = content.split(/\r?\n/);
     for (const line of lines) {
       const trimmedLine = line.trim();
       if (!trimmedLine) continue;
@@ -18,23 +34,12 @@ export class LogParser {
         if (markerIdx !== -1) {
           jsonStr = trimmedLine.substring(markerIdx + marker.length).trim();
         } else {
-          // Attempt to find the first '{' or '[' if marker is missing
           const firstBrace = trimmedLine.search(/\{|\[/);
           if (firstBrace === -1) continue;
           jsonStr = trimmedLine.substring(firstBrace).trim();
         }
 
-        // Robust Python-to-JSON conversion
-        // 1. Replace single quotes with double quotes (handling nested cases is hard, but simple replacement usually works for these logs)
-        jsonStr = jsonStr.replace(/'/g, '"');
-        // 2. Replace Python booleans and None
-        jsonStr = jsonStr.replace(/:\s*True/gi, ': true')
-                         .replace(/:\s*False/gi, ': false')
-                         .replace(/:\s*None/gi, ': null');
-
-        const parsed = JSON.parse(jsonStr);
-        
-        // Handle array of messages or single message
+        const parsed = JSON.parse(this.sanitizeJson(jsonStr));
         const items = Array.isArray(parsed) ? parsed : [parsed];
         
         for (const item of items) {
@@ -42,17 +47,27 @@ export class LogParser {
           if (frame) frames.push(frame);
         }
       } catch (e) {
-        // Skip lines that fail to parse
         continue;
       }
     }
 
-    // Filter and sort by timestamp
+    return this.sortAndDedupe(frames);
+  }
+
+  private static sanitizeJson(str: string): string {
+    // Convert Python-style logs to valid JSON
+    return str
+      .replace(/'/g, '"')
+      .replace(/:\s*True/gi, ': true')
+      .replace(/:\s*False/gi, ': false')
+      .replace(/:\s*None/gi, ': null');
+  }
+
+  private static sortAndDedupe(frames: MOTFrame[]): MOTFrame[] {
     const sorted = frames
       .filter(f => f.timestamp > 0)
       .sort((a, b) => a.timestamp - b.timestamp);
     
-    // De-duplicate frames with same timestamp
     return sorted.filter((f, i, arr) => i === 0 || f.timestamp !== arr[i-1].timestamp);
   }
 
@@ -61,21 +76,25 @@ export class LogParser {
 
     let hmiData = null;
 
-    // Check direct channel
+    // 1. Check for wrapped formats (MQTT/Logs with channels)
     if (item.channel === 'mov_objs_hmi') {
       hmiData = item.params;
     } 
-    // Check nested tracking channel data which often mirrors hmi
     else if (item.channel === 'tracking' && item.params && item.params.mov_objs_hmi) {
       hmiData = item.params.mov_objs_hmi;
     }
+    // 2. Check for direct format (provided by user)
+    else if (item.navi && Array.isArray(item.objs)) {
+      hmiData = item;
+    }
 
     if (hmiData && hmiData.navi && Array.isArray(hmiData.objs)) {
-      const timestamp = item.timestamp || (Array.isArray(hmiData.navi) ? hmiData.navi[8] : hmiData.navi.ts) || 0;
+      // Prioritize explicit ts, then navi.ts, then fallback to item timestamp
+      const timestamp = hmiData.timestamp || item.timestamp || (Array.isArray(hmiData.navi) ? hmiData.navi[8] : hmiData.navi.ts) || 0;
       
       return {
         timestamp: timestamp,
-        vin: item.vin || "Unknown",
+        vin: hmiData.vin || item.vin || "Unknown",
         navi: this.mapNavi(hmiData.navi),
         objs: hmiData.objs.map((o: any) => this.mapObject(o)),
         raw: JSON.stringify(item, null, 2)
