@@ -8,6 +8,7 @@ interface TelemetryPanelProps {
   isFollowing: boolean;
   isFullScreen: boolean;
   isLive?: boolean;
+  opacity?: number;
   onToggleFollow: () => void;
   onToggleFullScreen: () => void;
   onZoomIn: () => void;
@@ -16,11 +17,17 @@ interface TelemetryPanelProps {
 }
 
 const TelemetryPanel: React.FC<TelemetryPanelProps> = ({
-  speed, yawRate = 0, isFollowing, isFullScreen, isLive, onToggleFollow, onToggleFullScreen, onZoomIn, onZoomOut, onResetCamera
+  speed, yawRate = 0, isFollowing, isFullScreen, isLive, opacity = 0.9, onToggleFollow, onToggleFullScreen, onZoomIn, onZoomOut, onResetCamera
 }) => {
   return (
     <div className="absolute top-6 right-6 z-20 flex flex-col gap-4 items-end">
-      <div className="bg-slate-900/90 backdrop-blur-2xl border border-white/5 p-6 rounded-[2.5rem] shadow-2xl min-w-[240px] relative">
+      <div 
+        className="border border-white/5 p-6 rounded-[2.5rem] shadow-2xl min-w-[240px] relative"
+        style={{ 
+          backgroundColor: `rgba(15, 23, 42, ${opacity})`,
+          backdropFilter: `blur(${opacity * 24}px)`
+        }}
+      >
         {isLive && (
           <div className="absolute -top-2 -left-2 bg-red-600 text-white text-[8px] font-black uppercase px-2 py-1 rounded-lg flex items-center gap-1.5 shadow-lg live-pulse z-10">
             <Wifi size={10} className="animate-pulse" />
@@ -57,7 +64,13 @@ const TelemetryPanel: React.FC<TelemetryPanelProps> = ({
         </div>
       </div>
 
-      <div className="flex flex-col gap-2 bg-slate-900/80 backdrop-blur-xl border border-white/5 p-2 rounded-2xl shadow-xl">
+      <div 
+        className="flex flex-col gap-2 border border-white/5 p-2 rounded-2xl shadow-xl"
+        style={{ 
+          backgroundColor: `rgba(15, 23, 42, ${opacity})`,
+          backdropFilter: `blur(${opacity * 24}px)`
+        }}
+      >
         <button onClick={onZoomIn} className="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-800 hover:bg-blue-600 hover:text-white transition-all text-slate-400" title="Zoom In"><Plus size={20} /></button>
         <button onClick={onZoomOut} className="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-800 hover:bg-blue-600 hover:text-white transition-all text-slate-400" title="Zoom Out"><Minus size={20} /></button>
         <div className="h-px bg-white/5 mx-2" />

@@ -113,3 +113,14 @@ export interface PlaybackState {
   playbackSpeed: number;
   frames: MOTFrame[];
 }
+
+export type LayoutMode = 'SINGLE' | 'SPLIT_V' | 'SPLIT_H' | 'GRID';
+
+export interface SlotData {
+  instanceId: string;
+  name: string;
+  frames: MOTFrame[];
+  isLive: boolean;
+  streamRaw?: string;
+  streamError?: string | null;
+}

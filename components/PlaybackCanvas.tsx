@@ -1,12 +1,13 @@
 
-import React, { useRef, useEffect, useState, useImperativeHandle, forwardRef } from 'react';
+import React, { useRef, useEffect, useState, useImperativeHandle, forwardRef, useMemo } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
-import { MOTFrame, MOTObject } from '../types';
-import { KIND_COLORS } from '../constants';
+import { MOTFrame, MOTObject, NaviData } from '../types';
+import { KIND_COLORS, KIND_LABELS } from '../constants';
 import { Object3DFactory } from './MotObject/Object3D';
-import { applyObjectScaling, calculateRelativePosition } from '../functions/spatialUtils';
+import { applyObjectScaling, calculateRelativePosition, getObjectDimensions } from '../functions/spatialUtils';
 import { drawObjectLabel } from '../functions/canvasUtils';
+import { Box, Compass, MoveDiagonal, Activity, Ruler, Pin, Navigation, MapPin } from 'lucide-react';
 
 export interface PlaybackCanvasHandle {
   zoomIn: () => void;
@@ -19,8 +20,12 @@ interface PlaybackCanvasProps {
   isFollowing?: boolean;
   selectedId: number | null;
   hoveredId: number | null;
+  isNaviSelected?: boolean;
+  isNaviHovered?: boolean;
   onObjectClick?: (id: number | null) => void;
   onObjectHover?: (id: number | null) => void;
+  onNaviClick?: (selected: boolean) => void;
+  onNaviHover?: (hovered: boolean) => void;
 }
 
 interface CachedObject {
@@ -39,9 +44,13 @@ const PlaybackCanvas = forwardRef<PlaybackCanvasHandle, PlaybackCanvasProps>(({
   frame, 
   isFollowing = true, 
   selectedId, 
-  hoveredId, 
+  hoveredId,
+  isNaviSelected = false,
+  isNaviHovered = false,
   onObjectClick, 
-  onObjectHover 
+  onObjectHover,
+  onNaviClick,
+  onNaviHover
 }, ref) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -55,9 +64,31 @@ const PlaybackCanvas = forwardRef<PlaybackCanvasHandle, PlaybackCanvasProps>(({
   const mouseRef = useRef(new THREE.Vector2());
   const objectCacheRef = useRef<Map<number, CachedObject>>(new Map());
   
+  const [viewportPos, setViewportPos] = useState({ x: 0, y: 0 });
+  const [projectedPos, setProjectedPos] = useState<{x: number, y: number} | null>(null);
   const DEFAULT_ZOOM = 35;
   const followDistanceRef = useRef(DEFAULT_ZOOM);
   const [dummy, setDummy] = useState(0);
+
+  // 优先级逻辑：Hover 永远最高，无论是自车还是物体
+  // 如果没有 Hover，则显示选中的物体或自车
+  const displayMode = useMemo(() => {
+    if (hoveredId) return 'object';
+    if (isNaviHovered) return 'navi';
+    if (selectedId) return 'object';
+    if (isNaviSelected) return 'navi';
+    return 'none';
+  }, [hoveredId, isNaviHovered, selectedId, isNaviSelected]);
+
+  const displayObject = useMemo(() => {
+    if (displayMode === 'object') {
+      const id = hoveredId ?? selectedId;
+      return frame.objs.find(o => o.id === id);
+    }
+    return null;
+  }, [frame.objs, displayMode, hoveredId, selectedId]);
+
+  const isPinned = !hoveredId && !isNaviHovered && (!!selectedId || isNaviSelected);
 
   useImperativeHandle(ref, () => ({
     zoomIn: () => { 
@@ -79,6 +110,43 @@ const PlaybackCanvas = forwardRef<PlaybackCanvasHandle, PlaybackCanvasProps>(({
       setDummy(d => d + 1); 
     }
   }));
+
+  // 处理屏幕投影：使 Pinned 状态下的信息框跟随 3D 物体
+  useEffect(() => {
+    if (!isPinned || !cameraRef.current || !containerRef.current) {
+      setProjectedPos(null);
+      return;
+    }
+
+    const updateProjection = () => {
+      if (!cameraRef.current || !containerRef.current) return;
+      
+      let worldPos = new THREE.Vector3(0, 1.5, 0); // 默认坐标
+      if (displayMode === 'object' && displayObject) {
+        const pos = calculateRelativePosition(displayObject, frame.navi);
+        worldPos.set(pos.x, 1.5, pos.z);
+      } else if (displayMode === 'navi') {
+        worldPos.set(0, 1.5, 0); // 自车始终在 3D 世界的原点
+      } else {
+        return;
+      }
+
+      worldPos.project(cameraRef.current);
+      const rect = containerRef.current.getBoundingClientRect();
+      const x = (worldPos.x * 0.5 + 0.5) * rect.width;
+      const y = (-worldPos.y * 0.5 + 0.5) * rect.height;
+
+      if (worldPos.z < 1) {
+        setProjectedPos({ x: x + rect.left, y: y + rect.top });
+      } else {
+        setProjectedPos(null);
+      }
+    };
+
+    updateProjection();
+    const interval = setInterval(updateProjection, 16);
+    return () => clearInterval(interval);
+  }, [isPinned, displayMode, displayObject, frame.navi, dummy]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -103,7 +171,7 @@ const PlaybackCanvas = forwardRef<PlaybackCanvasHandle, PlaybackCanvasProps>(({
     controls.maxPolarAngle = Math.PI / 2.05;
     controls.minDistance = 2;
     controls.maxDistance = 2000;
-    controls.enableZoom = false; // Disable standard zoom to use custom Ctrl+Wheel
+    controls.enableZoom = false; 
     controlsRef.current = controls;
 
     const onWheel = (e: WheelEvent) => {
@@ -127,15 +195,33 @@ const PlaybackCanvas = forwardRef<PlaybackCanvasHandle, PlaybackCanvasProps>(({
     });
     resizeObserver.observe(containerRef.current);
 
-    const onPointerMove = (e: MouseEvent) => {
-      if (!containerRef.current || !cameraRef.current || !objectsGroupRef.current) return;
+    const onPointerMove = (e: PointerEvent) => {
+      if (!containerRef.current || !cameraRef.current || !objectsGroupRef.current || !hostGroupRef.current) return;
       const rect = containerRef.current.getBoundingClientRect();
-      mouseRef.current.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-      mouseRef.current.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      setViewportPos({ x: e.clientX, y: e.clientY });
+
+      const relX = e.clientX - rect.left;
+      const relY = e.clientY - rect.top;
+      mouseRef.current.x = (relX / rect.width) * 2 - 1;
+      mouseRef.current.y = -(relY / rect.height) * 2 + 1;
+      
       raycasterRef.current.setFromCamera(mouseRef.current, cameraRef.current);
-      const intersects = raycasterRef.current.intersectObjects(objectsGroupRef.current.children, true);
-      if (intersects.length > 0) {
-        let parent: any = intersects[0].object;
+
+      // 先测自车
+      const hostIntersects = raycasterRef.current.intersectObjects(hostGroupRef.current.children, true);
+      if (hostIntersects.length > 0) {
+        onNaviHover?.(true);
+        onObjectHover?.(null);
+        containerRef.current.style.cursor = 'pointer';
+        return;
+      } else {
+        onNaviHover?.(false);
+      }
+
+      // 再测物体
+      const objectIntersects = raycasterRef.current.intersectObjects(objectsGroupRef.current.children, true);
+      if (objectIntersects.length > 0) {
+        let parent: any = objectIntersects[0].object;
         while (parent && !parent.userData.id) parent = parent.parent;
         if (parent && parent.userData.id) { 
           onObjectHover?.(parent.userData.id); 
@@ -151,17 +237,32 @@ const PlaybackCanvas = forwardRef<PlaybackCanvasHandle, PlaybackCanvasProps>(({
     };
 
     const onClick = () => {
-      if (!cameraRef.current || !objectsGroupRef.current) return;
+      if (!cameraRef.current || !objectsGroupRef.current || !hostGroupRef.current) return;
       raycasterRef.current.setFromCamera(mouseRef.current, cameraRef.current);
-      const intersects = raycasterRef.current.intersectObjects(objectsGroupRef.current.children, true);
-      if (intersects.length > 0) {
-        let parent: any = intersects[0].object;
+
+      // 点击判定：自车优先
+      const hostIntersects = raycasterRef.current.intersectObjects(hostGroupRef.current.children, true);
+      if (hostIntersects.length > 0) {
+        onNaviClick?.(true);
+        onObjectClick?.(null);
+        return;
+      }
+
+      const objectIntersects = raycasterRef.current.intersectObjects(objectsGroupRef.current.children, true);
+      if (objectIntersects.length > 0) {
+        let parent: any = objectIntersects[0].object;
         while (parent && !parent.userData.id) parent = parent.parent;
-        if (parent && parent.userData.id) onObjectClick?.(parent.userData.id);
-      } else { onObjectClick?.(null); }
+        if (parent && parent.userData.id) {
+          onObjectClick?.(parent.userData.id);
+          onNaviClick?.(false);
+        }
+      } else { 
+        onObjectClick?.(null); 
+        onNaviClick?.(false);
+      }
     };
 
-    containerRef.current.addEventListener('mousemove', onPointerMove);
+    containerRef.current.addEventListener('pointermove', onPointerMove);
     containerRef.current.addEventListener('click', onClick);
     containerRef.current.addEventListener('wheel', onWheel, { passive: false });
     
@@ -194,19 +295,15 @@ const PlaybackCanvas = forwardRef<PlaybackCanvasHandle, PlaybackCanvasProps>(({
     const animate = () => { 
       if (isDisposed) return;
       requestAnimationFrame(animate); 
-      if (controlsRef.current) {
-        controlsRef.current.update();
-      }
-      if (rendererRef.current && sceneRef.current && cameraRef.current) {
-        rendererRef.current.render(sceneRef.current, cameraRef.current); 
-      }
+      if (controlsRef.current) controlsRef.current.update();
+      if (rendererRef.current && sceneRef.current && cameraRef.current) rendererRef.current.render(sceneRef.current, cameraRef.current); 
     };
     animate();
 
     return () => {
       isDisposed = true;
       resizeObserver.disconnect();
-      containerRef.current?.removeEventListener('mousemove', onPointerMove);
+      containerRef.current?.removeEventListener('pointermove', onPointerMove);
       containerRef.current?.removeEventListener('click', onClick);
       containerRef.current?.removeEventListener('wheel', onWheel);
       renderer.dispose();
@@ -221,7 +318,6 @@ const PlaybackCanvas = forwardRef<PlaybackCanvasHandle, PlaybackCanvasProps>(({
     const gridStep = 10;
     groundGroupRef.current.position.x = - (navi.east % gridStep);
     groundGroupRef.current.position.z = (navi.north % gridStep);
-
     hostGroupRef.current.rotation.y = navi.theta - Math.PI / 2;
     
     if (hostGroupRef.current.children.length === 0) {
@@ -260,18 +356,32 @@ const PlaybackCanvas = forwardRef<PlaybackCanvasHandle, PlaybackCanvasProps>(({
       hostGroupRef.current.add(arrowMesh);
     }
 
+    // 自车选中环
+    const naviRingId = "navi-selection-ring";
+    let naviRing = hostGroupRef.current.getObjectByName(naviRingId) as THREE.Mesh;
+    if (isNaviSelected || isNaviHovered) {
+      if (!naviRing) {
+        naviRing = new THREE.Mesh(new THREE.RingGeometry(3.0, 3.4, 32).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: isNaviSelected ? 0x3b82f6 : 0xffffff, transparent: true, opacity: 0.7 }));
+        naviRing.name = naviRingId;
+        naviRing.position.y = 0.05;
+        hostGroupRef.current.add(naviRing);
+      } else {
+        (naviRing.material as THREE.MeshBasicMaterial).color.set(isNaviSelected ? 0x3b82f6 : 0xffffff);
+      }
+    } else if (naviRing) {
+      hostGroupRef.current.remove(naviRing);
+    }
+
     if (isFollowing) {
       const dist = followDistanceRef.current;
       const camX = -Math.cos(navi.theta) * dist;
       const camZ = Math.sin(navi.theta) * dist;
       const camY = Math.max(2, dist * 0.4); 
       const cameraPos = new THREE.Vector3(camX, camY, camZ);
-      
       const lookAheadDist = 20;
       const targetX = Math.cos(navi.theta) * lookAheadDist;
       const targetZ = -Math.sin(navi.theta) * lookAheadDist;
       const targetPos = new THREE.Vector3(targetX, 0.5, targetZ);
-      
       cameraRef.current.position.lerp(cameraPos, 0.15);
       controlsRef.current.target.lerp(targetPos, 0.15);
       controlsRef.current.update();
@@ -333,7 +443,6 @@ const PlaybackCanvas = forwardRef<PlaybackCanvasHandle, PlaybackCanvasProps>(({
         const vRad = obj.vel_theta / 1000;
         const vDir = new THREE.Vector3(Math.cos(vRad), 0, -Math.sin(vRad));
         const len = Math.min(obj.vel / 3.6, 15) + 3.0; 
-        
         if (!cached.arrow) { 
           cached.arrow = new THREE.ArrowHelper(vDir, new THREE.Vector3(0, 0.2, 0), len, color, 1.5, 0.8); 
           cached.group.add(cached.arrow); 
@@ -360,9 +469,107 @@ const PlaybackCanvas = forwardRef<PlaybackCanvasHandle, PlaybackCanvasProps>(({
         cached.lastVel = obj.vel; cached.lastState = state;
       }
     });
-  }, [frame, isFollowing, selectedId, hoveredId, dummy]);
+  }, [frame, isFollowing, selectedId, hoveredId, isNaviSelected, isNaviHovered, dummy]);
 
-  return <div ref={containerRef} className="absolute inset-0 w-full h-full" />;
+  const finalX = isPinned && projectedPos ? projectedPos.x : viewportPos.x;
+  const finalY = isPinned && projectedPos ? projectedPos.y : viewportPos.y;
+
+  return (
+    <div ref={containerRef} className="absolute inset-0 w-full h-full">
+      {displayMode !== 'none' && (
+        <div 
+          className={`fixed z-[150] pointer-events-none bg-slate-900/90 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl p-4 flex flex-col gap-3 min-w-[240px] transition-transform duration-75 ease-out ${isPinned ? (displayMode === 'navi' ? 'ring-2 ring-blue-500' : 'ring-2 ring-blue-500/30') : ''}`}
+          style={{ 
+            left: finalX, 
+            top: finalY,
+            transform: `
+              translate(
+                ${finalX + 280 > window.innerWidth ? '-110%' : '20px'}, 
+                ${finalY + 340 > window.innerHeight ? '-110%' : '20px'}
+              )
+            `
+          }}
+        >
+          {displayMode === 'object' && displayObject ? (
+            <>
+              <div className="flex items-center justify-between border-b border-white/10 pb-2 mb-1">
+                <div className="flex flex-col">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest leading-tight">Spatial Inspector</span>
+                    {isPinned && <span className="flex items-center gap-1 bg-blue-500/20 text-blue-400 text-[8px] font-black px-1.5 py-0.5 rounded uppercase animate-pulse"><Pin size={8} /> Pinned</span>}
+                  </div>
+                  <span className="text-sm font-black text-white italic tracking-tighter uppercase">{KIND_LABELS[displayObject.kind] || 'Object'} #{displayObject.id}</span>
+                </div>
+                <div className="w-3 h-3 rounded-full shadow-[0_0_10px_rgba(255,255,255,0.2)]" style={{ backgroundColor: KIND_COLORS[displayObject.kind] || '#6b7280' }} />
+              </div>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                <div className="flex flex-col gap-0.5">
+                  <div className="flex items-center gap-1.5 opacity-60"><Activity size={10} className="text-blue-400" /><span className="text-[8px] font-black text-slate-400 uppercase tracking-tighter">Speed</span></div>
+                  <span className="text-xs font-mono font-bold text-white">{displayObject.vel.toFixed(1)} <span className="text-[8px] text-slate-600">KM/H</span></span>
+                </div>
+                <div className="flex flex-col gap-0.5">
+                  <div className="flex items-center gap-1.5 opacity-60"><Compass size={10} className="text-amber-400" /><span className="text-[8px] font-black text-slate-400 uppercase tracking-tighter">Theta (Yaw)</span></div>
+                  <span className="text-xs font-mono font-bold text-white">{(displayObject.theta / 1000).toFixed(3)} <span className="text-[8px] text-slate-600">RAD</span></span>
+                </div>
+                <div className="col-span-2 flex flex-col gap-2 border-t border-white/5 pt-2">
+                  <div className="flex items-center gap-1.5 opacity-60"><Ruler size={10} className="text-green-400" /><span className="text-[8px] font-black text-slate-400 uppercase tracking-tighter">Box Dimensions (L x W x H)</span></div>
+                  <div className="flex items-center justify-between">
+                    {(() => {
+                      const dims = getObjectDimensions(displayObject);
+                      return <div className="flex gap-2 items-baseline"><span className="text-xs font-mono font-bold text-slate-200">{dims.length.toFixed(2)}</span><span className="text-[8px] text-slate-600">m</span><span className="text-slate-700 mx-0.5">×</span><span className="text-xs font-mono font-bold text-slate-200">{dims.width.toFixed(2)}</span><span className="text-[8px] text-slate-600">m</span><span className="text-slate-700 mx-0.5">×</span><span className="text-xs font-mono font-bold text-slate-200">{dims.height.toFixed(2)}</span><span className="text-[8px] text-slate-600">m</span></div>;
+                    })()}
+                  </div>
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="flex items-center justify-between border-b border-blue-500/30 pb-2 mb-1">
+                <div className="flex flex-col">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest leading-tight">Master Telemetry</span>
+                    {isPinned && <span className="flex items-center gap-1 bg-blue-500 text-white text-[8px] font-black px-1.5 py-0.5 rounded uppercase animate-pulse"><Pin size={8} /> Host Pinned</span>}
+                  </div>
+                  <span className="text-sm font-black text-white italic tracking-tighter uppercase">Host Vehicle (Self)</span>
+                </div>
+                <Navigation size={18} className="text-blue-500 fill-current" />
+              </div>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                <div className="flex flex-col gap-0.5">
+                  <div className="flex items-center gap-1.5 opacity-60"><Activity size={10} className="text-blue-400" /><span className="text-[8px] font-black text-slate-400 uppercase tracking-tighter">Velocity</span></div>
+                  <span className="text-xs font-mono font-bold text-white">{(frame.navi.vel * 3.6).toFixed(1)} <span className="text-[8px] text-slate-600">KM/H</span></span>
+                  <span className="text-[9px] font-mono text-slate-500">({frame.navi.vel.toFixed(2)} m/s)</span>
+                </div>
+                <div className="flex flex-col gap-0.5">
+                  <div className="flex items-center gap-1.5 opacity-60"><Compass size={10} className="text-amber-400" /><span className="text-[8px] font-black text-slate-400 uppercase tracking-tighter">Heading</span></div>
+                  <span className="text-xs font-mono font-bold text-white">{frame.navi.theta.toFixed(4)} <span className="text-[8px] text-slate-600">RAD</span></span>
+                </div>
+                <div className="col-span-2 flex flex-col gap-2 border-t border-white/5 pt-2">
+                   <div className="flex items-center gap-1.5 opacity-60"><MapPin size={10} className="text-red-400" /><span className="text-[8px] font-black text-slate-400 uppercase tracking-tighter">Global Coordinates (ENU)</span></div>
+                   <div className="grid grid-cols-3 gap-1">
+                      <div className="bg-white/5 p-1.5 rounded-lg flex flex-col"><span className="text-[7px] text-slate-500 font-bold">EAST</span><span className="text-[10px] font-mono font-bold text-white">{frame.navi.east.toFixed(2)}</span></div>
+                      <div className="bg-white/5 p-1.5 rounded-lg flex flex-col"><span className="text-[7px] text-slate-500 font-bold">NORTH</span><span className="text-[10px] font-mono font-bold text-white">{frame.navi.north.toFixed(2)}</span></div>
+                      <div className="bg-white/5 p-1.5 rounded-lg flex flex-col"><span className="text-[7px] text-slate-500 font-bold">HEIGHT</span><span className="text-[10px] font-mono font-bold text-white">{frame.navi.height.toFixed(2)}</span></div>
+                   </div>
+                </div>
+                <div className="flex flex-col gap-0.5 pt-2">
+                  <div className="flex items-center gap-1.5 opacity-60"><Activity size={10} className="text-purple-400" /><span className="text-[8px] font-black text-slate-400 uppercase tracking-tighter">Yaw Rate</span></div>
+                  <span className="text-xs font-mono font-bold text-slate-200">{frame.navi.yaw_angular_speed.toFixed(3)} <span className="text-[8px] text-slate-600">rad/s</span></span>
+                </div>
+              </div>
+            </>
+          )}
+          <div className="mt-1 pt-2 border-t border-white/5 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+              <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest">3D Reconstruction Link</span>
+            </div>
+            <span className="text-[7px] font-mono text-slate-700">TS: {frame.timestamp.toFixed(3)}</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 });
 
 export default PlaybackCanvas;

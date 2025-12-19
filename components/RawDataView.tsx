@@ -23,8 +23,8 @@ const RawDataView: React.FC<RawDataViewProps> = ({ data }) => {
   };
 
   return (
-    <div className="flex-1 flex flex-col bg-slate-900 overflow-hidden">
-      <div className="p-3 border-b border-white/5 bg-slate-800/30 flex items-center justify-between">
+    <div className="flex-1 flex flex-col bg-transparent overflow-hidden">
+      <div className="p-3 border-b border-white/5 bg-transparent flex items-center justify-between">
         <div className="flex items-center gap-2 text-[10px] font-black uppercase text-slate-500 tracking-widest">
           <Terminal size={14} className="text-blue-500" />
           JSON Stream Console
@@ -38,7 +38,7 @@ const RawDataView: React.FC<RawDataViewProps> = ({ data }) => {
         </button>
       </div>
       
-      <div className="flex-1 overflow-auto custom-scrollbar p-4 bg-slate-950/50">
+      <div className="flex-1 overflow-auto custom-scrollbar p-4 bg-transparent">
         {!formattedJson ? (
           <div className="h-full flex flex-col items-center justify-center text-slate-600 italic gap-2">
             <Terminal size={24} strokeWidth={1} />

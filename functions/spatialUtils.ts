@@ -3,13 +3,9 @@ import * as THREE from 'three';
 import { MOTObject, ObjectKind } from '../types';
 
 /**
- * Calculates and applies local scaling to a 3D mesh based on MOT object metadata and kind.
- * It uses vertex points to determine real-world length/width or falls back to standard dimensions.
- * 
- * @param mesh The THREE.Group containing the object's geometry.
- * @param obj The MOT object data containing vertex points and kind.
+ * Calculates real-world dimensions (Length, Width, Height) for an object.
  */
-export const applyObjectScaling = (mesh: THREE.Group, obj: MOTObject) => {
+export const getObjectDimensions = (obj: MOTObject) => {
   // Reference dimensions (meters) for standard models
   let refWidth = 2.0, refLength = 4.5, refHeight = 1.5;
   
@@ -20,8 +16,8 @@ export const applyObjectScaling = (mesh: THREE.Group, obj: MOTObject) => {
     case ObjectKind.BICYCLE: refWidth = 0.6; refLength = 1.8; refHeight = 1.2; break;
   }
 
-  let actualLength = refLength;
-  let actualWidth = refWidth;
+  let length = refLength;
+  let width = refWidth;
 
   // Attempt to derive footprint from vertex points if available
   if (obj.vertex_points && obj.vertex_points.length >= 3) {
@@ -30,14 +26,22 @@ export const applyObjectScaling = (mesh: THREE.Group, obj: MOTObject) => {
     const side2 = Math.sqrt(Math.pow(p2[0] - p1[0], 2) + Math.pow(p2[1] - p1[1], 2));
     
     if (side1 > 0.01 && side2 > 0.01) {
-      actualLength = Math.max(side1, side2);
-      actualWidth = Math.min(side1, side2);
+      length = Math.max(side1, side2);
+      width = Math.min(side1, side2);
     }
   }
 
-  // Use height from data if it's significant, otherwise use reference
-  const actualHeight = obj.height > 10 ? obj.height / 100 : refHeight;
-  mesh.scale.set(actualWidth / refWidth, actualHeight / refHeight, actualLength / refLength);
+  const height = obj.height > 10 ? obj.height / 100 : refHeight;
+  
+  return { length, width, height, refLength, refWidth, refHeight };
+};
+
+/**
+ * Calculates and applies local scaling to a 3D mesh based on MOT object metadata and kind.
+ */
+export const applyObjectScaling = (mesh: THREE.Group, obj: MOTObject) => {
+  const { length, width, height, refLength, refWidth, refHeight } = getObjectDimensions(obj);
+  mesh.scale.set(width / refWidth, height / refHeight, length / refLength);
 };
 
 /**

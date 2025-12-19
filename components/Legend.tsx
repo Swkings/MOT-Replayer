@@ -3,12 +3,22 @@ import React, { useState } from 'react';
 import { KIND_COLORS, KIND_LABELS } from '../constants';
 import { ChevronDown, ChevronUp, Map as MapIcon } from 'lucide-react';
 
-const Legend: React.FC = () => {
+interface LegendProps {
+  opacity?: number;
+}
+
+const Legend: React.FC<LegendProps> = ({ opacity = 0.9 }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const visibleKinds = [0, 1, 2, 3, 5, 11, 15]; // Most common ones
 
   return (
-    <div className={`bg-slate-900/80 backdrop-blur-xl border border-white/5 rounded-[1.5rem] shadow-2xl transition-all duration-300 ease-in-out ${isCollapsed ? 'w-12 h-12 overflow-hidden' : 'p-5 min-w-[160px]'}`}>
+    <div 
+      className={`border border-white/5 rounded-[1.5rem] shadow-2xl transition-all duration-300 ease-in-out ${isCollapsed ? 'w-12 h-12 overflow-hidden' : 'p-5 min-w-[160px]'}`}
+      style={{ 
+        backgroundColor: `rgba(15, 23, 42, ${opacity})`,
+        backdropFilter: `blur(${opacity * 24}px)`
+      }}
+    >
       <div className="flex items-center justify-between mb-2">
         {!isCollapsed && (
           <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest border-b border-white/5 pb-2 flex-1 mr-4">Map Legend</h3>

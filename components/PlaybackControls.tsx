@@ -10,6 +10,7 @@ interface PlaybackControlsProps {
   timestamp: number;
   playbackSpeed: number;
   isLive?: boolean;
+  opacity?: number;
   onSeek: (idx: number) => void;
   onTogglePlayback: () => void;
   onStep: (direction: number) => void;
@@ -17,7 +18,7 @@ interface PlaybackControlsProps {
 }
 
 const PlaybackControls: React.FC<PlaybackControlsProps> = ({
-  currentIndex, frameCount, isPlaying, timestamp, playbackSpeed, isLive,
+  currentIndex, frameCount, isPlaying, timestamp, playbackSpeed, isLive, opacity = 0.9,
   onSeek, onTogglePlayback, onStep, onSpeedChange
 }) => {
   const [isPinned, setIsPinned] = useState(true); // Default: Pinned (fixed)
@@ -91,7 +92,13 @@ const PlaybackControls: React.FC<PlaybackControlsProps> = ({
         <div className="absolute -top-10 left-0 right-0 h-10 pointer-events-auto cursor-pointer" />
       )}
 
-      <div className={`w-full px-10 py-6 bg-slate-900/90 backdrop-blur-3xl border-t border-white/10 shadow-[0_-30px_60px_rgba(0,0,0,0.7)] flex flex-col gap-4 pointer-events-auto`}>
+      <div 
+        className={`w-full px-10 py-6 border-t border-white/10 shadow-[0_-30px_60px_rgba(0,0,0,0.7)] flex flex-col gap-4 pointer-events-auto`}
+        style={{ 
+          backgroundColor: `rgba(15, 23, 42, ${opacity})`,
+          backdropFilter: `blur(${opacity * 24}px)`
+        }}
+      >
         {!isLive ? (
           <>
             <div className="flex items-center gap-6">

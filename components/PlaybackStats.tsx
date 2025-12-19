@@ -6,9 +6,10 @@ interface PlaybackStatsProps {
   currentIndex: number;
   totalFrames: number;
   isLive?: boolean;
+  opacity?: number;
 }
 
-const PlaybackStats: React.FC<PlaybackStatsProps> = ({ currentIndex, totalFrames, isLive }) => {
+const PlaybackStats: React.FC<PlaybackStatsProps> = ({ currentIndex, totalFrames, isLive, opacity = 0.9 }) => {
   // Render FPS (UI/Canvas)
   const [renderFps, setRenderFps] = useState(0);
   const renderFrameCountRef = useRef(0);
@@ -94,7 +95,13 @@ const PlaybackStats: React.FC<PlaybackStatsProps> = ({ currentIndex, totalFrames
     val > 0 ? 'drop-shadow-[0_0_8px_rgba(34,197,94,0.3)]' : '';
 
   return (
-    <div className="bg-slate-900/70 backdrop-blur-2xl border border-white/10 p-5 rounded-[2rem] shadow-[0_20px_50px_rgba(0,0,0,0.6)] flex flex-col gap-5 min-w-[240px] pointer-events-auto border-t-white/20">
+    <div 
+      className="border border-white/10 p-5 rounded-[2rem] shadow-[0_20px_50px_rgba(0,0,0,0.6)] flex flex-col gap-5 min-w-[240px] pointer-events-auto border-t-white/20"
+      style={{ 
+        backgroundColor: `rgba(15, 23, 42, ${opacity})`,
+        backdropFilter: `blur(${opacity * 24}px)`
+      }}
+    >
       {/* Dual FPS Header */}
       <div className="grid grid-cols-2 gap-4 border-b border-white/5 pb-4">
         <div className="flex flex-col gap-1">
