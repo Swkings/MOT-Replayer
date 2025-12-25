@@ -163,7 +163,7 @@ const LandingPage: React.FC<LandingPageProps> = ({
           </div>
           <div>
             <h1 className="text-4xl font-black italic tracking-tighter bg-gradient-to-br from-white to-slate-500 bg-clip-text text-transparent">
-              MOT REPLAYER PRO
+              MOT REPLAYER
             </h1>
             <div className="flex items-center justify-center gap-3 mt-2">
               <p className="text-slate-500 text-xs font-bold uppercase tracking-widest">Spatial Intelligence Reconstruction</p>

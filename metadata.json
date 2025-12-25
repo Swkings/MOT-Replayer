@@ -1,5 +1,5 @@
 {
-  "name": "MOT Replayer Pro",
+  "name": "MOT Replayer",
   "description": "A high-performance visual replayer for Multi-Object Tracking (MOT) data logs, featuring 2D scene reconstruction, host vehicle tracking, and detailed object property inspection.",
   "requestFramePermissions": []
 }
